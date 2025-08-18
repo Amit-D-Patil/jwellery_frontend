@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Lottie from 'lottie-react';
 import axios from 'axios';
 
-import customerLottie from './assets/lotties/customerLottie.json';
+// import customerLottie from './assets/lotties/customerLottie.json';
 
 import AddCustomer from './AddCustomer';
 import CreateInvoice from './CreateInvoice';
@@ -97,7 +97,6 @@ function App() {
         return (
           <div className="bg-white rounded-xl shadow p-4 flex flex-col md:flex-row items-center gap-6 mb-6">
             <div className="w-40 md:w-60">
-              <Lottie animationData={customerLottie} loop={true} />
             </div>
             <div className="flex-1">
               <h2 className="text-2xl font-bold text-yellow-800">Welcome to Renuka Jewels Dashboard</h2>
