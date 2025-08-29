@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+            "@/*": ["src/*"]
+        },
+        "target": "es6",
+        "module": "commonjs",
+        "jsx": "react",
+        "checkJs": false,   // ⬅️ CHANGE THIS TO FALSE
+        "allowSyntheticDefaultImports": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "strict": false,
+        "resolveJsonModule": true,
+        "moduleResolution": "node",
+        "isolatedModules": true
+    },
+    "include": ["src/**/*"],
+    "exclude": ["node_modules", "build", "dist"]
+}
