@@ -64,4 +64,19 @@ invoiceSchema.pre("save", function (next) {
   next();
 });
 
+invoiceSchema.set("toJSON", {
+  virtuals: true,
+  transform: function (doc, ret) {
+    if (!ret.customer) {
+      ret.customer = {
+        name: "Deleted User",
+        phone: "Deleted User",
+        email: "Deleted User",
+      };
+    }
+    return ret;
+  },
+});
+
+
 export default mongoose.model("Invoice", invoiceSchema);

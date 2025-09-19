@@ -105,6 +105,21 @@ inventorySchema.pre('save', async function (next) {
   next();
 });
 
+inventorySchema.set("toJSON", {
+  virtuals: true,
+  transform: function (doc, ret) {
+    if (!ret.customer) {
+      ret.customer = {
+        name: "Deleted User",
+        phone: "Deleted User",
+        email: "Deleted User",
+      };
+    }
+    return ret;
+  },
+});
+
+
 // Pre-save middleware to update status based on quantity and reorder level
 inventorySchema.pre('save', function (next) {
   if (this.quantity <= 0) {

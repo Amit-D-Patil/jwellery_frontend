@@ -48,19 +48,29 @@ router.post('/', async (req, res) => {
 });
 
 // GET: Fetch all loans or filter by customer
-router.get('/', async (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const { customerId, status } = req.query;
-    let query = {};
+    const query = {};
 
     if (customerId) query.customer = customerId;
     if (status) query.status = status;
 
     const loans = await GoldLoan.find(query)
-      .populate('customer')
-      .sort({ createdAt: -1 });
+      .populate("customer")
+      .sort({ createdAt: -1 })
+      .lean();
 
-    res.json(loans);
+    const safeLoans = loans.map(loan => ({
+      ...loan,
+      customer: loan.customer || {
+        name: "Deleted User",
+        mobile: "Deleted User",
+        email: "Deleted User",
+      },
+    }));
+
+    res.json(safeLoans);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
