@@ -108,19 +108,41 @@ router.get('/', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const search = req.query.search || '';
+    const search = req.query.search?.trim() || '';
 
     const query = {};
+
     if (search) {
-      query.$or = [
-        { invoiceNumber: { $regex: search, $options: 'i' } },
-        { notes: { $regex: search, $options: 'i' } }
+      const searchRegex = new RegExp(search, 'i');
+      console.log('Search regex:', searchRegex);
+      // Step 1: find customers matching name or phone
+      const matchingCustomers = await Customer.find({
+        $or: [
+          { name: searchRegex },
+          { mobile: searchRegex },   // adjust field name if it's "mobile"
+        ]
+      }).select('_id');
+
+      const customerIds = matchingCustomers.map(c => c._id);
+
+      // Step 2: build invoice query
+      const orConditions = [
+        { notes: { $regex: search, $options: 'i' } },
+        { customer: { $in: customerIds } }
       ];
+
+      // Step 3: check if search is a number → match invoiceNumber
+      const numberSearch = Number(search);
+      if (!isNaN(numberSearch)) {
+        orConditions.push({ invoiceNumber: numberSearch });
+      }
+
+      query.$or = orConditions;
     }
 
     const total = await Invoice.countDocuments(query);
     const invoices = await Invoice.find(query)
-      .populate('customer', 'name phone email')
+      .populate('customer', 'name mobile email')
       .populate('items.itemId', 'name category')
       .sort({ date: -1 })
       .skip((page - 1) * limit)
@@ -137,6 +159,7 @@ router.get('/', async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch invoices', error: err.message });
   }
 });
+
 
 /**
  * @route   GET /api/invoices/:id
@@ -415,6 +438,27 @@ router.get("/:id/pdf", async (req, res) => {
   doc.moveTo(380, y + 95).lineTo(550, y + 95).stroke();
 
   doc.end();
+});
+
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const deletedInvoice = await Invoice.findByIdAndDelete(id);
+
+    if (!deletedInvoice) {
+      return res.status(404).json({ message: "Invoice not found" });
+    }
+
+    res.json({
+      success: true,
+      message: "Invoice deleted successfully",
+      invoice: deletedInvoice,
+    });
+  } catch (error) {
+    console.error("Error deleting invoice:", error);
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
 export default router;
