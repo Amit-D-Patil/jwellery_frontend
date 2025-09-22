@@ -13,6 +13,10 @@ const router = express.Router();
  * @route   POST /api/invoices
  * @desc    Create a new invoice and update customer history
  */
+/**
+ * @route   POST /api/invoices
+ * @desc    Create a new invoice
+ */
 router.post("/", async (req, res) => {
   try {
     const {
@@ -34,19 +38,29 @@ router.post("/", async (req, res) => {
     }
 
     // Calculate items & totals
-    const itemsWithTotal = items.map((item) => ({
-      itemId: item.itemId,
-      quantity: item.quantity,
-      weight: item.weight,
-      pricePerGram: item.pricePerGram,
-      makingCharge: item.makingCharge || 0,
-      totalPrice: item.weight * item.pricePerGram + (item.makingCharge || 0),
-    }));
+    const itemsWithTotal = items.map((item) => {
+      const basePrice = item.weight * item.pricePerGram;
+      const makingChargePercent = item.makingCharge || 0;
+      const makingChargeAmount = (basePrice * makingChargePercent) / 100;
+
+      const totalPrice = basePrice + makingChargeAmount;
+
+      return {
+        itemId: item.itemId,
+        quantity: item.quantity,
+        weight: item.weight,
+        pricePerGram: item.pricePerGram,
+        makingCharge: makingChargePercent, // store % value
+        makingChargeAmount,                // calculated amount
+        totalPrice,
+      };
+    });
 
     const subtotal = itemsWithTotal.reduce((sum, item) => sum + item.totalPrice, 0);
     const gstAmount = (subtotal * gst) / 100;
     const totalAmount = subtotal + gstAmount;
     const dueAmount = totalAmount - paidAmount;
+
     if (amountPaid > totalAmount) {
       return res.status(400).json({
         message: "Paid amount cannot be greater than the total amount.",
@@ -100,9 +114,10 @@ router.post("/", async (req, res) => {
   }
 });
 
+
 /**
  * @route   GET /api/invoices
- * @desc    Get all invoices with customer data
+ * @desc    Get all invoices with customer data + search + pagination
  */
 router.get('/', async (req, res) => {
   try {
@@ -114,24 +129,20 @@ router.get('/', async (req, res) => {
 
     if (search) {
       const searchRegex = new RegExp(search, 'i');
-      console.log('Search regex:', searchRegex);
-      // Step 1: find customers matching name or phone
       const matchingCustomers = await Customer.find({
         $or: [
           { name: searchRegex },
-          { mobile: searchRegex },   // adjust field name if it's "mobile"
+          { mobile: searchRegex },
         ]
       }).select('_id');
 
       const customerIds = matchingCustomers.map(c => c._id);
 
-      // Step 2: build invoice query
       const orConditions = [
         { notes: { $regex: search, $options: 'i' } },
         { customer: { $in: customerIds } }
       ];
 
-      // Step 3: check if search is a number → match invoiceNumber
       const numberSearch = Number(search);
       if (!isNaN(numberSearch)) {
         orConditions.push({ invoiceNumber: numberSearch });
@@ -182,6 +193,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+
 /**
  * @route   PUT /api/invoices/:id
  * @desc    Update an existing invoice
@@ -196,32 +208,37 @@ router.put("/:id", async (req, res) => {
       paymentMethod,
       notes,
       gst,
-      paidAmount, // Renamed from paidAmount in frontend to match
+      paidAmount,
     } = req.body;
 
-    // --- Step 1: Find the original invoice to calculate changes later ---
     const originalInvoice = await Invoice.findById(id);
     if (!originalInvoice) {
       return res.status(404).json({ message: "Invoice not found" });
     }
 
-    // --- Step 2: Recalculate all totals based on the new data ---
-    // The server should always be the source of truth for calculations.
-    const itemsWithTotal = items.map((item) => ({
-      ...item,
-      totalPrice: item.quantity * (item.weight * item.pricePerGram + item.makingCharge),
-    }));
+    // Recalculate items & totals with % making charge
+    const itemsWithTotal = items.map((item) => {
+      const basePrice = item.weight * item.pricePerGram;
+      const makingChargePercent = item.makingCharge || 0;
+      const makingChargeAmount = (basePrice * makingChargePercent) / 100;
+      const totalPrice = basePrice + makingChargeAmount;
 
-    const newSubtotal = itemsWithTotal.reduce(
-      (sum, item) => sum + item.totalPrice,
-      0
-    );
+      return {
+        itemId: item.itemId,
+        quantity: item.quantity,
+        weight: item.weight,
+        pricePerGram: item.pricePerGram,
+        makingCharge: makingChargePercent,
+        makingChargeAmount,
+        totalPrice,
+      };
+    });
+
+    const newSubtotal = itemsWithTotal.reduce((sum, item) => sum + item.totalPrice, 0);
     const newGstAmount = (newSubtotal * gst) / 100;
     const newTotalAmount = newSubtotal + newGstAmount;
 
-
-
-    // --- Step 3: Update the invoice document ---
+    // Update invoice
     const updatedInvoice = await Invoice.findByIdAndUpdate(
       id,
       {
@@ -240,24 +257,21 @@ router.put("/:id", async (req, res) => {
           dueDate,
         },
       },
-      { new: true } // This option returns the modified document
+      { new: true }
     );
 
-    // --- Step 4: Calculate the change in due amount to update the customer ---
+    // Adjust customer dues + history
     const dueAmountChange = updatedInvoice.dueAmount - originalInvoice.dueAmount;
     const loyaltyPointsChange = Math.floor(updatedInvoice.paidAmount / 100) - Math.floor(originalInvoice.paidAmount / 100);
 
-    // --- Step 5: Update the corresponding customer's total due and history ---
     await Customer.updateOne(
-      // Find the customer and the specific history entry to update
       { _id: customer, "history.invoiceId": id },
       {
         $inc: {
-          totalDue: dueAmountChange, // Atomically increment/decrement the total due
+          totalDue: dueAmountChange,
           loyaltyPoints: loyaltyPointsChange,
         },
         $set: {
-          // Update the values within the specific history array element
           "history.$.date": updatedInvoice.date,
           "history.$.totalAmount": updatedInvoice.totalAmount,
           "history.$.paidAmount": updatedInvoice.paidAmount,
@@ -266,7 +280,6 @@ router.put("/:id", async (req, res) => {
       }
     );
 
-    // --- Step 6: Populate and send the final updated invoice ---
     const populatedInvoice = await Invoice.findById(updatedInvoice._id)
       .populate("customer", "name phone email")
       .populate("items.itemId", "name category");
@@ -277,6 +290,7 @@ router.put("/:id", async (req, res) => {
     res.status(500).json({ message: "Failed to update invoice", error: err.message });
   }
 });
+
 
 /**
  * @route   GET /api/invoices/:id./pdf

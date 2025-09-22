@@ -33,7 +33,7 @@ router.post('/', async (req, res) => {
       loanAmount,
       interestRate,
       tenure,
-      remainingAmount: loanAmount,
+      remainingAmount: loanAmount + (loanAmount * interestRate * (tenure / 12)) / 100, // Principal + Simple Interest
       collateralDetails,
       emi
     });
@@ -90,7 +90,6 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST: Add a repayment
-// POST: Add a repayment
 router.post('/:id/repayments', async (req, res) => {
   try {
     const { amount, date = new Date() } = req.body;
@@ -107,26 +106,20 @@ router.post('/:id/repayments', async (req, res) => {
     // --- Round helper ---
     const round2 = (num) => Math.round(num * 100) / 100;
 
-    // Calculate interest on outstanding balance (not original loan)
-    let monthlyInterest = (loan.remainingAmount * loan.interestRate) / (12 * 100);
-    monthlyInterest = round2(monthlyInterest);
-
-    const interestPaid = round2(Math.min(monthlyInterest, amount));
-    const principalPaid = round2(amount - interestPaid);
-
-    let remainingBalance = round2(loan.remainingAmount - principalPaid);
-    if (remainingBalance < 0.01) remainingBalance = 0; // treat tiny remainders as 0
+    // Just reduce repayment from remaining balance
+    let remainingBalance = round2(loan.remainingAmount - amount);
+    if (remainingBalance < 0.01) remainingBalance = 0;
 
     // Add repayment record
     loan.repayments.push({
       date,
       amount: round2(amount),
-      interestPaid,
-      principalPaid,
+      interestPaid: 0,      // not tracked in simple EMI
+      principalPaid: 0,     // not tracked
       remainingBalance
     });
 
-    // Update loan status and remaining amount
+    // Update loan
     loan.remainingAmount = remainingBalance;
     if (remainingBalance === 0) {
       loan.status = 'closed';
@@ -142,6 +135,8 @@ router.post('/:id/repayments', async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 });
+
+
 
 
 // PUT: Update loan status (for renewal or default)
@@ -165,6 +160,18 @@ router.put('/:id/status', async (req, res) => {
     res.json(updatedLoan);
   } catch (error) {
     res.status(400).json({ message: error.message });
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const loan = await GoldLoan.findByIdAndDelete(req.params.id);
+    if (!loan) {
+      return res.status(404).json({ message: 'Loan not found' });
+    }
+    res.json({ message: 'Loan deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 
